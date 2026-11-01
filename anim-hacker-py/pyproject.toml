@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "animhacker"
+version = "0.6.5"
+description = "Edit Second Life .anim animation files (Qt port of Anim Hacker)"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.9"
+dependencies = ["PySide6>=6.5"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+animhacker = "animhacker.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

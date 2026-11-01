@@ -1,0 +1,11 @@
+Anim Hacker (Python / Qt port)
+
+This program is a port of Anim Hacker 0.5 by Ai (extrude.ragu),
+https://gitlab.com/big-bum-logistics/anim-hacker, licensed under the Apache License 2.0.
+The target offset calculator and constraint validator, and the port to Python and PySide6, are
+additions to that work under the same licence.
+
+src/animhacker/skeleton_data.py is generated from avatar_skeleton.xml in the Second Life viewer
+(https://github.com/secondlife/viewer, indra/newview/character/avatar_skeleton.xml, revision
+3fe5763), which is distributed under the GNU LGPL v2.1. The quaternion and keyframe maths follows
+the behaviour of the viewer's LLQuaternion and LLKeyframeMotion.
