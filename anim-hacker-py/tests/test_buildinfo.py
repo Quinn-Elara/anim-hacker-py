@@ -23,13 +23,18 @@ def git(root, *args):
                           text=True, env=GIT_ENV).stdout.strip()
 
 
-def make_repo(path):
+def make_repo(path, project=None):
+    """A git repository holding the real buildinfo.py at <project>/src/animhacker/ (the project
+    folder is the repository itself unless `project` names a subfolder)."""
     path.mkdir(exist_ok=True)
     git(path, "init", "-q")
-    (path / "a.txt").write_text("one")
-    git(path, "add", "a.txt")
+    where = path / project if project else path
+    (where / "src" / "animhacker").mkdir(parents=True)
+    shutil.copy(os.path.join(PROJECT, "src", "animhacker", "buildinfo.py"), where / "src" / "animhacker")
+    (where / "a.txt").write_text("one")
+    git(path, "add", "-A")
     git(path, "commit", "-q", "-m", "first")
-    return path
+    return where
 
 
 def test_labels():
@@ -53,13 +58,31 @@ def test_git_state_reads_the_commit_and_notices_changes(tmp_path):
     assert new_commit != commit and not dirty
 
 
-def test_a_repository_further_up_the_tree_does_not_count(tmp_path):
+def test_a_repository_that_does_not_track_the_project_does_not_count(tmp_path):
     repo = make_repo(tmp_path / "outer")
-    inner = repo / "venv" / "site-packages"
-    inner.mkdir(parents=True)
-    assert buildinfo.git_state(str(inner)) is None               # inside a repo, but not its top
+    venv = repo / "venv" / "site-packages" / "animhacker"      # an install inside the repo's folder
+    venv.mkdir(parents=True)
+    shutil.copy(os.path.join(PROJECT, "src", "animhacker", "buildinfo.py"), venv)
+    assert buildinfo.git_state(str(repo / "venv")) is None
+    assert buildinfo.git_state(str(repo / "venv" / "site-packages")) is None
     assert buildinfo.git_state(str(tmp_path)) is None            # no repo at all
     assert buildinfo.git_state(str(tmp_path / "missing")) is None
+    stranger = tmp_path / "stranger"
+    (stranger / "src" / "animhacker").mkdir(parents=True)        # a project that is not committed
+    shutil.copy(os.path.join(PROJECT, "src", "animhacker", "buildinfo.py"), stranger / "src" / "animhacker")
+    git(stranger, "init", "-q")
+    assert buildinfo.git_state(str(stranger)) is None            # a repository, but it tracks nothing
+
+
+def test_the_project_may_be_a_folder_inside_the_repository(tmp_path):
+    project = make_repo(tmp_path / "r", "anim-hacker-py")
+    commit, dirty = buildinfo.git_state(str(project))
+    assert commit == git(tmp_path / "r", "rev-parse", "HEAD") and not dirty
+    (tmp_path / "r" / "README.md").write_text("a file outside the project folder")
+    git(tmp_path / "r", "add", "README.md")
+    assert buildinfo.git_state(str(project))[1] is False         # changes elsewhere do not count
+    (project / "a.txt").write_text("changed inside the project")
+    assert buildinfo.git_state(str(project))[1] is True
 
 
 def test_a_repository_without_commits_is_unknown(tmp_path):
@@ -100,7 +123,7 @@ def test_build_records_the_commit(tmp_path):
     assert (tmp_path / "out" / "animhacker" / "ui" / "main_window.py").exists()
 
     # uncommitted changes are recorded as such
-    (project / "README.md").write_text("changed")
+    (project / "pyproject.toml").write_text((project / "pyproject.toml").read_text() + "\n# changed\n")
     run_setup(project, "build_py", "-d", str(tmp_path / "out2"))
     assert "DIRTY = True" in (tmp_path / "out2" / "animhacker" / "_build_info.py").read_text()
 
@@ -133,6 +156,19 @@ def test_source_archive_carries_the_commit_to_a_build_without_git(tmp_path):
     done = run_setup(root, "build_py", "-d", str(tmp_path / "from_archive"))
     assert done.returncode == 0, done.stderr
     assert commit in (tmp_path / "from_archive" / "animhacker" / "_build_info.py").read_text()
+
+
+def test_build_from_a_project_folder_inside_a_repository(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    project = copy_project(repo / "anim-hacker-py")
+    git(repo, "init", "-q")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "upload")
+    commit = git(repo, "rev-parse", "HEAD")
+    done = run_setup(project, "build_py", "-d", str(tmp_path / "out"))
+    assert done.returncode == 0, done.stderr
+    assert 'COMMIT = "%s"' % commit in (tmp_path / "out" / "animhacker" / "_build_info.py").read_text()
 
 
 def test_build_outside_git_writes_nothing(tmp_path):

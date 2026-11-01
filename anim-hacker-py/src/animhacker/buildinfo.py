@@ -1,7 +1,8 @@
 """Which git commit this copy of Anim Hacker was built from.
 
 Three sources, in order:
-  1. the git checkout the code is running from (running from source, or an editable install);
+  1. the git checkout the code is running from (running from source, or an editable install), whether
+     the project is the whole repository or a folder inside it;
   2. _build_info.py, written into the package by setup.py when it was built from a git checkout
      (a normal install, a wheel, a source archive made with `python -m build`);
   3. nothing, in which case the build is reported as unknown. A number is never guessed.
@@ -28,16 +29,22 @@ def _git(root: str, *args: str) -> Optional[str]:
 
 
 def git_state(root: str) -> Optional[Tuple[str, bool]]:
-    """(full commit hash, has uncommitted changes) for the repository whose top folder is `root`,
-    or None. A repository further up the tree does not count: when the package is installed inside
-    some unrelated repository (a virtualenv in a project folder, say) its commit is not ours."""
-    top = _git(root, "rev-parse", "--show-toplevel")
-    if not top or not os.path.exists(root) or not os.path.samefile(top, root):
+    """(full commit hash, has uncommitted changes) for the git repository that holds the project
+    whose top folder is `root` (the folder containing src/animhacker), or None.
+
+    The project may be the whole repository or just a folder inside it. Either way the repository
+    only counts if it tracks this very file: when the package is installed inside some unrelated
+    repository (a virtualenv in a project folder, say) its commit is not ours. Only changes inside
+    the project folder make the build "dirty"."""
+    marker = os.path.join(root, "src", "animhacker", "buildinfo.py")
+    if not os.path.isfile(marker):
         return None
+    if _git(root, "ls-files", "--error-unmatch", "--", marker) is None:
+        return None                                    # no repository here, or it does not track us
     commit = _git(root, "rev-parse", "HEAD")
     if not commit or len(commit) < 40:
         return None
-    changes = _git(root, "status", "--porcelain", "--untracked-files=no")
+    changes = _git(root, "status", "--porcelain", "--untracked-files=no", "--", ".")
     return commit, bool(changes)
 
 
