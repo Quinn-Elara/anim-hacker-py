@@ -441,13 +441,15 @@ class BulkOffsetDialog(QDialog):
         row = QHBoxLayout(box)
         spins = []
         for axis in "XYZ":
-            row.addWidget(QLabel(axis))
+            label = QLabel(axis)
+            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)      # sits against its own box
+            row.addWidget(label, 1)
             spin = QDoubleSpinBox()
             spin.setRange(low, high)
             spin.setDecimals(decimals)
             spin.setSuffix(suffix)
             spin.setSingleStep(1.0 if decimals == 2 else 0.01)
-            row.addWidget(spin)
+            row.addWidget(spin, 4)
             spins.append(spin)
         layout.addWidget(box)
         return spins

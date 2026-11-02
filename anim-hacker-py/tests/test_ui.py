@@ -440,3 +440,10 @@ def test_bulk_offset_time_range_and_main_window_entry(window, monkeypatch):
     monkeypatch.setattr(dialogs.BulkOffsetDialog, "exec", lambda self: ran.append(self) or 1)
     window.bulk_offset()
     assert ran and not window.modified
+
+
+def test_bulk_offset_axis_labels_are_right_aligned(app):
+    from PySide6.QtWidgets import QLabel
+    dialog = dialogs.BulkOffsetDialog(Animation())
+    labels = [l for l in dialog.findChildren(QLabel) if l.text() in ("X", "Y", "Z")]
+    assert len(labels) == 6 and all(l.alignment() & Qt.AlignRight for l in labels)
