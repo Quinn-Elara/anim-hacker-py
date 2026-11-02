@@ -43,6 +43,10 @@ Everything the original did:
   with a Meaning column (ease times are seconds, offsets are multiples of the volume's size); Raw
   view shows each float as the 32-bit pattern stored in the file (`0x41200000` = 10) and edits take
   patterns the same way.
+* **Bulk offset keys…** (main window) – add the same rotation and/or position offset to every key of
+  the joints you tick, optionally only between two times. A rotation offset turns each key about the
+  joint's own axes (+20° Y tilts the joint 20° about its own Y, whatever the key already does), and
+  is applied in the viewer's quaternion order.
 * **Priority Changer** – raise, lower or set the priority of the animation and all its joints for
   many files at once.
 * **Help** – replaces the original's "Clippy" window.
@@ -75,10 +79,12 @@ want the point, make a volume's bone the active bone (or set `VOLUME` at the top
 run it from the Text Editor. The offset is printed, shown in a popup and copied to the clipboard.
 
 Your rig needs the standard `m*` joint bones (Avastar and the Linden Lab Blender rigs have them)
-and must be in its default pose and shape (Armature data > Skeleton > Rest Position). The script
-matches those bones to the default skeleton to find the rig's orientation, scale and position, so
-it works whichever way the rig faces, and reports how well they matched. The embedded skeleton
-table comes from `tools/gen_blender_data.py`.
+in its rest pose (Armature data > Skeleton > Rest Position) and the default avatar shape. A-pose
+rigs work: the script sets aside joints that are posed differently when it works out the rig's
+orientation and scale, and takes each volume's orientation from the joint it hangs on. If the rig
+has a bone named like the volume, that bone's head is used as the volume's centre. The script
+reports how well it matched and warns if a volume bone is not where the default skeleton puts it.
+The embedded skeleton table comes from `tools/gen_blender_data.py`.
 
 ## Differences from the original
 

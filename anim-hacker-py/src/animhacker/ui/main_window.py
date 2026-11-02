@@ -14,7 +14,7 @@ from .. import buildinfo
 from ..model import Animation, AnimFormatError, Header
 from . import fields, texts
 from .constraint_editor import ConstraintEditor
-from .dialogs import (ANIM_FILTER, ChoiceEditor, HelpDialog, PriorityChanger, ValueEditor, ask_for_animation,
+from .dialogs import (ANIM_FILTER, BulkOffsetDialog, ChoiceEditor, HelpDialog, PriorityChanger, ValueEditor, ask_for_animation,
                       load_animation_file)
 from .joint_editor import JointMotionEditor
 
@@ -75,7 +75,10 @@ class MainWindow(QMainWindow):
         self._joints.clicked.connect(self.view_joints)
         self._constraints = QPushButton()
         self._constraints.clicked.connect(self.view_constraints)
+        self._bulk = QPushButton("Bulk offset keys...")
+        self._bulk.clicked.connect(self.bulk_offset)
         layout.addWidget(self._joints)
+        layout.addWidget(self._bulk)
         layout.addWidget(self._constraints)
 
         credit = QLabel('%s<br>Build %s &nbsp;·&nbsp; <a href="%s">%s</a> &nbsp;·&nbsp; '
@@ -107,7 +110,7 @@ class MainWindow(QMainWindow):
     def _refresh(self) -> None:
         anim = self.anim
         loaded = anim is not None
-        for widget in (self._save_as, self._edit, self._replace, self._joints, self._constraints):
+        for widget in (self._save_as, self._edit, self._replace, self._joints, self._constraints, self._bulk):
             widget.setEnabled(loaded)
         if not loaded:
             self._file_label.setText("No file open. Open an .anim file, or drop one on this window.")
@@ -275,6 +278,14 @@ class MainWindow(QMainWindow):
         dialog.changed.connect(self._mark_modified)
         dialog.exec()
         self._refresh()
+
+    def bulk_offset(self) -> None:
+        if self.anim is None:
+            return
+        dialog = BulkOffsetDialog(self.anim, self)
+        dialog.exec()
+        if dialog.applied:
+            self._mark_modified()
 
     def priority_changer(self) -> None:
         PriorityChanger(self).exec()

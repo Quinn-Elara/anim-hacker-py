@@ -26,6 +26,14 @@ def block() -> str:
         if not node.is_collision_volume:
             x, y, z = rest.world_position[i]
             lines.append("    %r: (%.7g, %.7g, %.7g),\n" % (node.name, x, y, z))
+    lines += ["}\n\n", "# Joint name -> its parent joint (the root has none)\n", "JOINT_PARENT = {\n"]
+    for node in skeleton.NODES:
+        if not node.is_collision_volume and node.parent >= 0:
+            lines.append("    %r: %r,\n" % (node.name, skeleton.NODES[node.parent].name))
+    lines += ["}\n\n", "# Collision volume -> the joint it is attached to\n", "VOLUME_PARENT = {\n"]
+    for node in skeleton.NODES:
+        if node.is_collision_volume:
+            lines.append("    %r: %r,\n" % (node.name, skeleton.NODES[node.parent].name))
     lines += ["}\n\n",
               "# Collision volume -> (centre, rotation as x y z w, size) at rest, in skeleton space\n",
               "VOLUMES = {\n"]

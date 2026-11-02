@@ -90,9 +90,13 @@ def test_recovers_the_offset_in_a_rig_with_any_orientation_scale_and_position(sc
     for volume in ("L_HAND", "HEAD", "R_FOOT", "BELLY", "L_UPPER_ARM", "PELVIS"):
         offset = tuple(rng.uniform(-1.5, 1.5, size=3))
         point_rig = tuple(s * r @ np.array(true_point(volume, offset)) + t)
-        got, rms, matched = script.compute(point_rig, rig, volume)
-        assert got == pytest.approx(offset, abs=1e-5)
-        assert rms < 1e-6 and matched == len(script.JOINTS)
+        result = script.compute(point_rig, rig, volume)
+        assert result.offset == pytest.approx(offset, abs=1e-5)
+        assert result.fit_error < 1e-6 and len(result.used) == len(script.JOINTS) and not result.ignored
+        assert result.centre_error is None                          # no volume bone was given
+        head = tuple(s * r @ np.array(script.VOLUMES[volume][0]) + t)
+        with_bone = script.compute(point_rig, rig, volume, head)       # the rig's own volume bone
+        assert with_bone.offset == pytest.approx(offset, abs=1e-5) and with_bone.centre_error < 1e-6
 
 
 def test_agrees_with_the_anim_hacker_calculator(script):
@@ -106,7 +110,7 @@ def test_agrees_with_the_anim_hacker_calculator(script):
         point = true_point(source, source_offset)
         s, r, t = random_similarity(np.random.default_rng(3))
         point_rig = tuple(s * r @ np.array(point) + t)
-        got, _, _ = script.compute(point_rig, rig_of(script, (s, r, t)), target)
+        got = script.compute(point_rig, rig_of(script, (s, r, t)), target).offset
         e = expected.target_offset
         assert got == pytest.approx((e.x, e.y, e.z), abs=1e-4)
 
@@ -118,24 +122,74 @@ def test_small_errors_in_the_rig_give_small_errors_in_the_answer(script):
     s, r, t = sim
     offset = (0.3, -0.2, 0.5)
     point_rig = tuple(s * r @ np.array(true_point("L_HAND", offset)) + t)
-    got, rms, _ = script.compute(point_rig, rig, "L_HAND")
-    assert 0.0005 < rms < 0.01
-    assert got == pytest.approx(offset, abs=0.15)
+    result = script.compute(point_rig, rig, "L_HAND")
+    assert 0.0005 < result.fit_error < 0.01
+    assert result.offset == pytest.approx(offset, abs=0.15)
+
+
+def apose_rig(script, sim, degrees, side="Left"):
+    """The default skeleton with one arm (everything below the shoulder) swung down about the
+    shoulder, as an A-pose rig has it, then moved by the similarity `sim`. Returns the joints, the
+    function that maps a default-skeleton point attached to a volume into the rig, and the rotation."""
+    s_, r_, t_ = sim
+    shoulder = np.array(script.JOINTS["m%s%s" % ("Shoulder", side)])
+    angle = math.radians(degrees if side == "Left" else -degrees)
+    c, sn = math.cos(angle), math.sin(angle)
+    swing = np.array([[1, 0, 0], [0, c, -sn], [0, sn, c]])          # about the skeleton's x axis
+    below = set()
+    for name in script.JOINTS:
+        node = name
+        while node in script.JOINT_PARENT:
+            if node == "m%s%s" % ("Shoulder", side) and name != node:
+                below.add(name)
+            node = script.JOINT_PARENT[node]
+
+    def to_rig(point, volume=None):
+        point = np.array(point)
+        if volume is not None and script.VOLUME_PARENT[volume] in below | {"m%s%s" % ("Shoulder", side)}:
+            point = shoulder + swing @ (point - shoulder)
+        return s_ * r_ @ point + t_
+
+    joints = {}
+    for name, p in script.JOINTS.items():
+        p = np.array(p)
+        if name in below:
+            p = shoulder + swing @ (p - shoulder)
+        joints[name] = tuple(s_ * r_ @ p + t_)
+    return joints, to_rig
+
+
+@pytest.mark.parametrize("seed,degrees", [(1, 40), (2, 45), (3, 20)])
+def test_a_pose_rig_is_handled(script, seed, degrees):
+    """With an arm swung down the answer for a point on that arm's volumes is unchanged, and the
+    arm's joints are set aside rather than spoiling the fit."""
+    rng = np.random.default_rng(seed)
+    sim = random_similarity(rng)
+    joints, to_rig = apose_rig(script, sim, degrees)
+    for volume in ("L_UPPER_ARM", "L_LOWER_ARM", "L_HAND", "HEAD", "R_HAND", "BELLY"):
+        offset = tuple(rng.uniform(-1.0, 1.0, size=3))
+        point_rig = tuple(to_rig(true_point(volume, offset), volume))
+        head = tuple(to_rig(script.VOLUMES[volume][0], volume))
+        result = script.compute(point_rig, joints, volume, head)
+        assert result.offset == pytest.approx(offset, abs=0.02), volume
+        assert result.fit_error < script.MAX_GOOD_FIT_ERROR and result.centre_error < 0.002
+        assert "mElbowLeft" in result.ignored and "mHead" in result.used
+        without_bone = script.compute(point_rig, joints, volume)
+        assert without_bone.offset == pytest.approx(offset, abs=0.02), volume
 
 
 def test_a_rig_that_is_not_the_default_skeleton_is_reported(script):
     rng = np.random.default_rng(5)
-    rig = rig_of(script, (1.0, np.eye(3), np.zeros(3)))
-    # lower the arms, as an A-pose rig would: the fit can no longer be good
-    for name in rig:
-        if "Wrist" in name or "Hand" in name or "Elbow" in name:
-            x, y, z = rig[name]
-            rig[name] = (x, y * 0.7, z - 0.4)
-    _, rms, _ = script.compute((0, 0, 1), rig, "HEAD")
-    assert rms > script.MAX_GOOD_FIT_ERROR
+    rig = rig_of(script, (1.0, np.eye(3), np.zeros(3)), noise=0.1, rng=rng)           # 10 cm of scatter
+    assert script.compute((0, 0, 1), rig, "HEAD").fit_error > script.MAX_GOOD_FIT_ERROR
     mirrored = {n: (-p[0], p[1], p[2]) for n, p in script.JOINTS.items()}      # a reflected rig
-    _, rms, _ = script.compute((0, 0, 1), mirrored, "HEAD")
-    assert rms > script.MAX_GOOD_FIT_ERROR
+    assert script.compute((0, 0, 1), mirrored, "HEAD").fit_error > script.MAX_GOOD_FIT_ERROR
+
+
+def test_a_volume_bone_in_the_wrong_place_is_visible(script):
+    rig = rig_of(script, (1.0, np.eye(3), np.zeros(3)))
+    moved = tuple(np.array(script.VOLUMES["HEAD"][0]) + (0.0, 0.0, 0.1))
+    assert script.compute((0, 0, 1), rig, "HEAD", moved).centre_error == pytest.approx(0.1, abs=1e-6)
 
 
 def test_refuses_what_it_cannot_match(script):
@@ -190,13 +244,16 @@ class Obj:
 
 
 def make_scene(script, offset=(0.3, -0.2, 0.5), volume="L_HAND", select_cube=True, active_bone=None,
-               with_armature=True):
+               with_armature=True, volume_bone_shift=None):
     rng = np.random.default_rng(2)
     s, r, t = random_similarity(rng)
     local = Matrix(1.0, np.eye(3), (0, 0, 0))
     bone_list = [Bone(n, p) for n, p in rig_of(script, (s, r, t)).items()]
     class BoneList(list):
         active = None
+    if volume_bone_shift is not None:                       # the rig has a bone for the volume
+        centre = np.array(script.VOLUMES[volume][0]) + volume_bone_shift
+        bone_list.append(Bone(volume, tuple(s * r @ centre + t)))
     blist = BoneList(bone_list)
     if active_bone:
         blist.active = next(b for b in blist if b.name == active_bone)
@@ -254,7 +311,12 @@ def test_the_active_bone_picks_the_volume(script):
     context.active_object.data.bones.append(Bone("HEAD", (0, 0, 0)))
     context.active_object.data.bones.active = context.active_object.data.bones[-1]
     run_in_fake_blender(script, context)
-    assert parse(clip["v"]) == pytest.approx(offset, abs=1e-5)
+    assert popups[0][1] == "ERROR"            # that bone is nowhere near the default HEAD: flagged
+    context, clip, popups, offset = make_scene(script, volume="HEAD", volume_bone_shift=(0, 0, 0))
+    bones = context.active_object.data.bones
+    bones.active = bones[-1]
+    run_in_fake_blender(script, context)
+    assert parse(clip["v"]) == pytest.approx(offset, abs=1e-5) and popups[0][1] == "INFO"
 
 
 def test_blender_layer_reports_a_missing_rig(script, capsys):

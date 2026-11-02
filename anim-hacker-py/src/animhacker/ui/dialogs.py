@@ -7,7 +7,7 @@ from typing import List, Optional, Sequence
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+                               QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPushButton,
                                QRadioButton, QSpinBox, QTextBrowser, QVBoxLayout, QWidget)
 
@@ -375,6 +375,116 @@ class _DropList(QListWidget):
 
     def paths(self) -> List[str]:
         return [self.item(i).text() for i in range(self.count())]
+
+
+class BulkOffsetDialog(QDialog):
+    """Adds the same rotation and/or position offset to every key of the chosen joints."""
+
+    def __init__(self, anim: Animation, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.anim = anim
+        self.applied = False
+        self.setWindowTitle("Bulk offset")
+        self.resize(460, 560)
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("Joints to change:"))
+        self._joints = QListWidget()
+        for motion in anim.joint_motions:
+            item = QListWidgetItem("%s  (%d rotation, %d position keys)" % (
+                motion.joint_name, len(motion.rotation_keys), len(motion.position_keys)))
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked)
+            self._joints.addItem(item)
+        layout.addWidget(self._joints, 1)
+        row = QHBoxLayout()
+        everything = QPushButton("Select all")
+        everything.clicked.connect(lambda: self._set_all(Qt.Checked))
+        nothing = QPushButton("Select none")
+        nothing.clicked.connect(lambda: self._set_all(Qt.Unchecked))
+        row.addWidget(everything)
+        row.addWidget(nothing)
+        row.addStretch(1)
+        layout.addLayout(row)
+
+        self._rotation = self._spin_group(layout, "Rotation offset (degrees about the joint's own axes)",
+                                          -360.0, 360.0, 2, " °")
+        self._position = self._spin_group(layout, "Position offset (metres)", -10.0, 10.0, 4, " m")
+
+        self._limit = QCheckBox("Only keys between (seconds):")
+        layout.addWidget(self._limit)
+        times = QHBoxLayout()
+        self._start = QDoubleSpinBox()
+        self._end = QDoubleSpinBox()
+        for box, value in ((self._start, 0.0), (self._end, anim.header.duration)):
+            box.setRange(0.0, max(anim.header.duration, 0.0))
+            box.setDecimals(3)
+            box.setValue(value)
+            box.setSuffix(" s")
+            box.setEnabled(False)
+            times.addWidget(box)
+        self._limit.toggled.connect(self._start.setEnabled)
+        self._limit.toggled.connect(self._end.setEnabled)
+        times.addStretch(1)
+        layout.addLayout(times)
+
+        layout.addWidget(QLabel("Each offset is added to every chosen key, so the result is cumulative if "
+                                "you apply it again. Positions are limited to \u00b15 m."))
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        self._apply = buttons.addButton("Apply", QDialogButtonBox.AcceptRole)
+        self._apply.clicked.connect(self._run)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _spin_group(self, layout, title, low, high, decimals, suffix):
+        box = QGroupBox(title)
+        row = QHBoxLayout(box)
+        spins = []
+        for axis in "XYZ":
+            row.addWidget(QLabel(axis))
+            spin = QDoubleSpinBox()
+            spin.setRange(low, high)
+            spin.setDecimals(decimals)
+            spin.setSuffix(suffix)
+            spin.setSingleStep(1.0 if decimals == 2 else 0.01)
+            row.addWidget(spin)
+            spins.append(spin)
+        layout.addWidget(box)
+        return spins
+
+    def _set_all(self, state) -> None:
+        for i in range(self._joints.count()):
+            self._joints.item(i).setCheckState(state)
+
+    def chosen(self) -> List[JointMotion]:
+        return [m for i, m in enumerate(self.anim.joint_motions) if self._joints.item(i).checkState() == Qt.Checked]
+
+    def _run(self) -> None:
+        rotation = tuple(spin.value() for spin in self._rotation)
+        position = tuple(spin.value() for spin in self._position)
+        chosen = self.chosen()
+        if not chosen:
+            QMessageBox.information(self, "Nothing chosen", "Tick at least one joint.")
+            return
+        if not any(rotation) and not any(position):
+            QMessageBox.information(self, "No offset", "Enter a rotation or position offset first.")
+            return
+        start, end = 0, 65535
+        if self._limit.isChecked():
+            start, end = self.anim.seconds_to_raw(self._start.value()), self.anim.seconds_to_raw(self._end.value())
+            if start > end:
+                QMessageBox.warning(self, "Time range", "The start time is after the end time.")
+                return
+        rotated, moved, clamped = edit_ops.offset_keys(chosen, rotation, position, start, end)
+        self.applied = bool(rotated or moved)
+        text = "Changed %d rotation key(s) and %d position key(s) on %d joint(s)." % (rotated, moved, len(chosen))
+        if clamped:
+            text += "\n%d position value(s) hit the \u00b15 m limit and were clamped." % clamped
+        if not self.applied:
+            text = "No keys matched: " + text
+        QMessageBox.information(self, "Bulk offset", text)
+        if self.applied:
+            self.accept()
 
 
 class PriorityChanger(QDialog):

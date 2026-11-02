@@ -7,7 +7,7 @@ number out for a point you place in the scene.
 How to use it
   1. Open your Second Life rig. It needs the standard joint bones (mPelvis, mTorso, mHead,
      mWristLeft, ...), as Avastar and the Linden Lab Blender rigs have.
-  2. Show the rig in its default pose and shape: Armature data > Skeleton > Rest Position. (The
+  2. Show the rig in its rest pose: Armature data > Skeleton > Rest Position. A-pose is fine. (The
      offset is relative to the volume, so it does not matter what pose the animation uses, but the
      point you place must be placed against the rest pose.)
   3. Place the point: put the 3D cursor there, or select a cube / empty whose origin is there.
@@ -16,10 +16,14 @@ How to use it
   5. Run the script (Text Editor > Run Script). The result is printed to the system console,
      shown in a popup and copied to the clipboard, ready to paste into Anim Hacker.
 
-The script finds how your rig sits in space (rotation, size, position) by matching the rig's
-joint bones to the default skeleton, so it does not matter which way the rig faces or what its
-scale is. It reports how well they matched; if the match is poor, the rig is not in the default
-pose and shape and the answer should not be trusted.
+The script works out where your rig sits (orientation, scale, position) by matching its joint
+bones to the default skeleton. Joints that are posed differently, such as the arms of an A-pose
+rig, are set aside automatically, and each volume's own orientation is taken from the joint it is
+attached to, so an A-pose rig gives the same offsets as a T-pose one. If the rig has a bone named
+like the volume (L_HAND, HEAD, ...), that bone's head is used as the volume's centre; otherwise the
+centre is worked out from the rig's joints. The volume's size always comes from the default
+skeleton, so the rig should have the default shape. The script reports how well everything matched,
+and warns if a volume bone is not where the default skeleton puts it.
 """
 import math
 
@@ -32,6 +36,12 @@ VOLUME = "L_HAND"
 # A match worse than this (in metres of skeleton) means the rig is not the default skeleton.
 MAX_GOOD_FIT_ERROR = 0.02
 MIN_MATCHED_JOINTS = 6
+# Joints that fit worse than this are dropped when finding the rig's overall orientation.
+TRIM_TARGET = 0.005
+# A joint whose neighbours lie within this ratio of a straight line is treated as straight.
+COLLINEAR = 0.05
+# A volume bone further than this (metres) from the default skeleton's volume centre is reported.
+MAX_CENTRE_ERROR = 0.03
 
 # --- BEGIN GENERATED DATA (tools/gen_blender_data.py) ---
 # Joint name -> rest position in skeleton space (metres)
@@ -171,6 +181,172 @@ JOINTS = {
     'mHindLimb4Right': (-0.32, -0.08, 0.006),
 }
 
+# Joint name -> its parent joint (the root has none)
+JOINT_PARENT = {
+    'mSpine1': 'mPelvis',
+    'mSpine2': 'mSpine1',
+    'mTorso': 'mSpine2',
+    'mSpine3': 'mTorso',
+    'mSpine4': 'mSpine3',
+    'mChest': 'mSpine4',
+    'mNeck': 'mChest',
+    'mHead': 'mNeck',
+    'mSkull': 'mHead',
+    'mEyeRight': 'mHead',
+    'mEyeLeft': 'mHead',
+    'mFaceRoot': 'mHead',
+    'mFaceEyeAltRight': 'mFaceRoot',
+    'mFaceEyeAltLeft': 'mFaceRoot',
+    'mFaceForeheadLeft': 'mFaceRoot',
+    'mFaceForeheadRight': 'mFaceRoot',
+    'mFaceEyebrowOuterLeft': 'mFaceRoot',
+    'mFaceEyebrowCenterLeft': 'mFaceRoot',
+    'mFaceEyebrowInnerLeft': 'mFaceRoot',
+    'mFaceEyebrowOuterRight': 'mFaceRoot',
+    'mFaceEyebrowCenterRight': 'mFaceRoot',
+    'mFaceEyebrowInnerRight': 'mFaceRoot',
+    'mFaceEyeLidUpperLeft': 'mFaceRoot',
+    'mFaceEyeLidLowerLeft': 'mFaceRoot',
+    'mFaceEyeLidUpperRight': 'mFaceRoot',
+    'mFaceEyeLidLowerRight': 'mFaceRoot',
+    'mFaceEar1Left': 'mFaceRoot',
+    'mFaceEar2Left': 'mFaceEar1Left',
+    'mFaceEar1Right': 'mFaceRoot',
+    'mFaceEar2Right': 'mFaceEar1Right',
+    'mFaceNoseLeft': 'mFaceRoot',
+    'mFaceNoseCenter': 'mFaceRoot',
+    'mFaceNoseRight': 'mFaceRoot',
+    'mFaceCheekLowerLeft': 'mFaceRoot',
+    'mFaceCheekUpperLeft': 'mFaceRoot',
+    'mFaceCheekLowerRight': 'mFaceRoot',
+    'mFaceCheekUpperRight': 'mFaceRoot',
+    'mFaceJaw': 'mFaceRoot',
+    'mFaceChin': 'mFaceJaw',
+    'mFaceTeethLower': 'mFaceJaw',
+    'mFaceLipLowerLeft': 'mFaceTeethLower',
+    'mFaceLipLowerRight': 'mFaceTeethLower',
+    'mFaceLipLowerCenter': 'mFaceTeethLower',
+    'mFaceTongueBase': 'mFaceTeethLower',
+    'mFaceTongueTip': 'mFaceTongueBase',
+    'mFaceJawShaper': 'mFaceRoot',
+    'mFaceForeheadCenter': 'mFaceRoot',
+    'mFaceNoseBase': 'mFaceRoot',
+    'mFaceTeethUpper': 'mFaceRoot',
+    'mFaceLipUpperLeft': 'mFaceTeethUpper',
+    'mFaceLipUpperRight': 'mFaceTeethUpper',
+    'mFaceLipCornerLeft': 'mFaceTeethUpper',
+    'mFaceLipCornerRight': 'mFaceTeethUpper',
+    'mFaceLipUpperCenter': 'mFaceTeethUpper',
+    'mFaceEyecornerInnerLeft': 'mFaceRoot',
+    'mFaceEyecornerInnerRight': 'mFaceRoot',
+    'mFaceNoseBridge': 'mFaceRoot',
+    'mCollarLeft': 'mChest',
+    'mShoulderLeft': 'mCollarLeft',
+    'mElbowLeft': 'mShoulderLeft',
+    'mWristLeft': 'mElbowLeft',
+    'mHandMiddle1Left': 'mWristLeft',
+    'mHandMiddle2Left': 'mHandMiddle1Left',
+    'mHandMiddle3Left': 'mHandMiddle2Left',
+    'mHandIndex1Left': 'mWristLeft',
+    'mHandIndex2Left': 'mHandIndex1Left',
+    'mHandIndex3Left': 'mHandIndex2Left',
+    'mHandRing1Left': 'mWristLeft',
+    'mHandRing2Left': 'mHandRing1Left',
+    'mHandRing3Left': 'mHandRing2Left',
+    'mHandPinky1Left': 'mWristLeft',
+    'mHandPinky2Left': 'mHandPinky1Left',
+    'mHandPinky3Left': 'mHandPinky2Left',
+    'mHandThumb1Left': 'mWristLeft',
+    'mHandThumb2Left': 'mHandThumb1Left',
+    'mHandThumb3Left': 'mHandThumb2Left',
+    'mCollarRight': 'mChest',
+    'mShoulderRight': 'mCollarRight',
+    'mElbowRight': 'mShoulderRight',
+    'mWristRight': 'mElbowRight',
+    'mHandMiddle1Right': 'mWristRight',
+    'mHandMiddle2Right': 'mHandMiddle1Right',
+    'mHandMiddle3Right': 'mHandMiddle2Right',
+    'mHandIndex1Right': 'mWristRight',
+    'mHandIndex2Right': 'mHandIndex1Right',
+    'mHandIndex3Right': 'mHandIndex2Right',
+    'mHandRing1Right': 'mWristRight',
+    'mHandRing2Right': 'mHandRing1Right',
+    'mHandRing3Right': 'mHandRing2Right',
+    'mHandPinky1Right': 'mWristRight',
+    'mHandPinky2Right': 'mHandPinky1Right',
+    'mHandPinky3Right': 'mHandPinky2Right',
+    'mHandThumb1Right': 'mWristRight',
+    'mHandThumb2Right': 'mHandThumb1Right',
+    'mHandThumb3Right': 'mHandThumb2Right',
+    'mWingsRoot': 'mChest',
+    'mWing1Left': 'mWingsRoot',
+    'mWing2Left': 'mWing1Left',
+    'mWing3Left': 'mWing2Left',
+    'mWing4Left': 'mWing3Left',
+    'mWing4FanLeft': 'mWing3Left',
+    'mWing1Right': 'mWingsRoot',
+    'mWing2Right': 'mWing1Right',
+    'mWing3Right': 'mWing2Right',
+    'mWing4Right': 'mWing3Right',
+    'mWing4FanRight': 'mWing3Right',
+    'mHipRight': 'mPelvis',
+    'mKneeRight': 'mHipRight',
+    'mAnkleRight': 'mKneeRight',
+    'mFootRight': 'mAnkleRight',
+    'mToeRight': 'mFootRight',
+    'mHipLeft': 'mPelvis',
+    'mKneeLeft': 'mHipLeft',
+    'mAnkleLeft': 'mKneeLeft',
+    'mFootLeft': 'mAnkleLeft',
+    'mToeLeft': 'mFootLeft',
+    'mTail1': 'mPelvis',
+    'mTail2': 'mTail1',
+    'mTail3': 'mTail2',
+    'mTail4': 'mTail3',
+    'mTail5': 'mTail4',
+    'mTail6': 'mTail5',
+    'mGroin': 'mPelvis',
+    'mHindLimbsRoot': 'mPelvis',
+    'mHindLimb1Left': 'mHindLimbsRoot',
+    'mHindLimb2Left': 'mHindLimb1Left',
+    'mHindLimb3Left': 'mHindLimb2Left',
+    'mHindLimb4Left': 'mHindLimb3Left',
+    'mHindLimb1Right': 'mHindLimbsRoot',
+    'mHindLimb2Right': 'mHindLimb1Right',
+    'mHindLimb3Right': 'mHindLimb2Right',
+    'mHindLimb4Right': 'mHindLimb3Right',
+}
+
+# Collision volume -> the joint it is attached to
+VOLUME_PARENT = {
+    'PELVIS': 'mPelvis',
+    'BUTT': 'mPelvis',
+    'BELLY': 'mTorso',
+    'LEFT_HANDLE': 'mTorso',
+    'RIGHT_HANDLE': 'mTorso',
+    'LOWER_BACK': 'mTorso',
+    'CHEST': 'mChest',
+    'LEFT_PEC': 'mChest',
+    'RIGHT_PEC': 'mChest',
+    'UPPER_BACK': 'mChest',
+    'NECK': 'mNeck',
+    'HEAD': 'mHead',
+    'L_CLAVICLE': 'mCollarLeft',
+    'L_UPPER_ARM': 'mShoulderLeft',
+    'L_LOWER_ARM': 'mElbowLeft',
+    'L_HAND': 'mWristLeft',
+    'R_CLAVICLE': 'mCollarRight',
+    'R_UPPER_ARM': 'mShoulderRight',
+    'R_LOWER_ARM': 'mElbowRight',
+    'R_HAND': 'mWristRight',
+    'R_UPPER_LEG': 'mHipRight',
+    'R_LOWER_LEG': 'mKneeRight',
+    'R_FOOT': 'mAnkleRight',
+    'L_UPPER_LEG': 'mHipLeft',
+    'L_LOWER_LEG': 'mKneeLeft',
+    'L_FOOT': 'mAnkleLeft',
+}
+
 # Collision volume -> (centre, rotation as x y z w, size) at rest, in skeleton space
 VOLUMES = {
     'PELVIS': ((-0.01, 0, 1.047), (0, 0.06975647, 0, 0.9975641), (0.12, 0.16, 0.17)),
@@ -252,13 +428,6 @@ def fit_similarity(skeleton_points, rig_points):
     return scale, rot, trans, rms
 
 
-def to_skeleton_space(point, fit):
-    """Converts a point in the rig's space into the default skeleton's space."""
-    import numpy as np
-    scale, rot, trans, _rms = fit
-    return tuple(float(v) for v in rot.T @ ((np.asarray(point, dtype=float) - trans) / scale))
-
-
 def volume_offset(point_in_skeleton_space, volume):
     """The offset that the viewer's getVolumePos() turns back into this point: subtract the volume's
     centre, rotate into the volume's own frame, divide by the volume's size."""
@@ -276,15 +445,117 @@ def format_offset(offset):
     return "<%s>" % ",".join(parts)
 
 
-def compute(point_in_rig_space, rig_joint_positions, volume):
-    """Everything together. rig_joint_positions maps joint name -> position in the rig's space.
-    Returns (offset, fit_error, matched_joint_count)."""
+def fit_core(rig_joints):
+    """Fits the rig's overall position, orientation and scale to the default skeleton, ignoring the
+    joints that are posed differently (the arms of an A-pose rig, say): the worst-fitting joints
+    are dropped until the rest agree. Returns (fit, joints_used, joints_ignored)."""
+    names = [n for n in JOINTS if n in rig_joints]
+    if len(names) < MIN_MATCHED_JOINTS:
+        raise ValueError("only %d joints matched the default skeleton; at least %d are needed"
+                         % (len(names), MIN_MATCHED_JOINTS))
+    keep = list(names)
+    floor = max(MIN_MATCHED_JOINTS, int(0.6 * len(names)))
+    while True:
+        fit = fit_similarity([JOINTS[n] for n in keep], [rig_joints[n] for n in keep])
+        if fit[3] <= TRIM_TARGET or len(keep) <= floor:
+            return fit, keep, [n for n in names if n not in keep]
+        scale, rot, trans, _rms = fit
+        error = {n: float(((scale * rot @ _vec(JOINTS[n]) + trans - _vec(rig_joints[n])) ** 2).sum())
+                 for n in keep}
+        drop = min(max(1, len(keep) // 20), len(keep) - floor)
+        worst = set(sorted(keep, key=error.get, reverse=True)[:drop])
+        keep = [n for n in keep if n not in worst]
+
+
+def _vec(p):
+    import numpy as np
+    return np.asarray(p, dtype=float)
+
+
+def joint_rotation(joint, rig_joints, fit):
+    """The rotation (3x3, skeleton space -> rig space) of one joint in the rig, found from where its
+    neighbouring joints (parent and children) are. A joint whose neighbours all lie on one line, such
+    as an elbow, has its twist taken from the overall rig orientation and is turned by the shortest
+    way onto the direction it points in the rig."""
+    import numpy as np
+    scale, rot, _trans, _rms = fit
+    neighbours = [n for n in JOINTS if JOINT_PARENT.get(n) == joint]
+    if joint in JOINT_PARENT:
+        neighbours.append(JOINT_PARENT[joint])
+    pairs = []
+    for n in neighbours:
+        if n in rig_joints and joint in rig_joints:
+            a = rot @ (_vec(JOINTS[n]) - _vec(JOINTS[joint]))          # where it would be without a pose
+            b = (_vec(rig_joints[n]) - _vec(rig_joints[joint])) / scale
+            if np.linalg.norm(a) > 1e-4 and np.linalg.norm(b) > 1e-4:
+                pairs.append((a, b))
+    if not pairs:
+        return rot
+    a = np.array([p[0] for p in pairs])
+    b = np.array([p[1] for p in pairs])
+    u, sing, vt = np.linalg.svd(a.T @ b)
+    if sing[1] > COLLINEAR * sing[0]:
+        sign = 1.0 if np.linalg.det(vt.T @ u.T) >= 0 else -1.0
+        turn = vt.T @ np.diag([1.0, 1.0, sign]) @ u.T
+    else:
+        longest = max(range(len(pairs)), key=lambda i: np.linalg.norm(a[i]))
+        turn = _shortest_arc(a[longest], b[longest])
+    return turn @ rot
+
+
+def _shortest_arc(a, b):
+    import numpy as np
+    a = a / np.linalg.norm(a)
+    b = b / np.linalg.norm(b)
+    axis = np.cross(a, b)
+    s, c = float(np.linalg.norm(axis)), float(a @ b)
+    if s < 1e-9:
+        if c > 0:
+            return np.eye(3)
+        helper = np.array([1.0, 0, 0]) if abs(a[0]) < 0.9 else np.array([0, 1.0, 0])
+        axis = np.cross(a, helper)
+        axis /= np.linalg.norm(axis)
+        return 2.0 * np.outer(axis, axis) - np.eye(3)
+    axis /= s
+    k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    return np.eye(3) + s * k + (1.0 - c) * (k @ k)
+
+
+class Result:
+    """offset: the answer; fit_error: metres of skeleton the core joints disagree by; used/ignored:
+    joint names; centre_error: how far (metres of skeleton) the rig's volume bone is from where the
+    default skeleton puts the volume, or None if the rig has no bone for it."""
+    def __init__(self, offset, fit_error, used, ignored, centre_error):
+        self.offset, self.fit_error, self.used, self.ignored, self.centre_error = (
+            offset, fit_error, used, ignored, centre_error)
+
+
+def compute(point_in_rig_space, rig_joints, volume, rig_volume_head=None):
+    """Everything together. rig_joints maps joint name -> position in the rig's space;
+    rig_volume_head is the position of the rig's own bone for this volume, if it has one (it is then
+    the volume's centre; otherwise the centre comes from the default skeleton)."""
+    import numpy as np
     if volume not in VOLUMES:
         raise ValueError("'%s' is not a collision volume. Valid names: %s" % (volume, ", ".join(VOLUMES)))
-    names = [n for n in JOINTS if n in rig_joint_positions]
-    fit = fit_similarity([JOINTS[n] for n in names], [rig_joint_positions[n] for n in names])
-    offset = volume_offset(to_skeleton_space(point_in_rig_space, fit), volume)
-    return offset, fit[3], len(names)
+    fit, used, ignored = fit_core(rig_joints)
+    scale = fit[0]
+    parent = VOLUME_PARENT[volume]
+    centre, rotation, size = VOLUMES[volume]
+    if parent in rig_joints:
+        rot = joint_rotation(parent, rig_joints, fit)
+        predicted = _vec(rig_joints[parent]) + scale * rot @ (_vec(centre) - _vec(JOINTS[parent]))
+    else:
+        rot = fit[1]
+        predicted = scale * rot @ _vec(centre) + fit[2]
+    if rig_volume_head is not None:
+        head = _vec(rig_volume_head)
+        centre_error = float(np.linalg.norm(head - predicted)) / scale
+    else:
+        head, centre_error = predicted, None
+    local = rot.T @ ((_vec(point_in_rig_space) - head) / scale)           # in skeleton orientation
+    in_volume = _rotate(tuple(local), _conjugate(rotation))
+    offset = tuple(in_volume[i] / size[i] for i in range(3))
+    return Result(offset, fit[3], used, ignored, centre_error)
 
 
 # ------------------------------------------------------------------------------------- Blender part
@@ -325,19 +596,30 @@ def main():
         volume, volume_from = _find_volume(armature)
         world = armature.matrix_world
         joints = {b.name: tuple(world @ b.head_local) for b in armature.data.bones if b.name in JOINTS}
-        offset, rms, matched = compute(tuple(point), joints, volume)
+        volume_bone = next((b for b in armature.data.bones if b.name == volume), None)
+        head = tuple(world @ volume_bone.head_local) if volume_bone is not None else None
+        result = compute(tuple(point), joints, volume, head)
     except ValueError as exc:
         message = "Anim Hacker offset: %s" % exc
         print(message)
         _popup(context, ["Could not work out the offset", str(exc)], "ERROR")
         return
 
+    offset, rms = result.offset, result.fit_error
     text = format_offset(offset)
     lines = ["Offset from %s: %s" % (volume, text),
              "Point: %s; volume: %s (%s)" % (point_from, volume, volume_from),
-             "Rig matched the default skeleton on %d joints, error %.1f mm" % (matched, rms * 1000)]
-    if rms > MAX_GOOD_FIT_ERROR:
-        lines.append("WARNING: poor match. Is the rig in Rest Position with the default shape?")
+             "Volume centre: %s" % ("the rig's '%s' bone" % volume if head is not None
+                                    else "worked out from the rig's joints"),
+             "Rig orientation fitted on %d joints (%d ignored as posed differently), error %.1f mm"
+             % (len(result.used), len(result.ignored), rms * 1000)]
+    bad = rms > MAX_GOOD_FIT_ERROR
+    if bad:
+        lines.append("WARNING: poor match. Is the rig the default skeleton shape?")
+    if result.centre_error is not None and result.centre_error > MAX_CENTRE_ERROR:
+        bad = True
+        lines.append("WARNING: the '%s' bone is %.0f mm from where the default skeleton puts it."
+                     % (volume, result.centre_error * 1000))
     if max(abs(v) for v in offset) > 2.0:
         lines.append("Note: the point is well outside the volume (offsets are in units of its size).")
     print("\n".join(lines))
@@ -346,7 +628,7 @@ def main():
         lines.append("(copied to the clipboard)")
     except Exception:
         pass
-    _popup(context, lines, "ERROR" if rms > MAX_GOOD_FIT_ERROR else "INFO")
+    _popup(context, lines, "ERROR" if bad else "INFO")
 
 
 def _popup(context, lines, icon):

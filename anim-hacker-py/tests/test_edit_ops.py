@@ -1,3 +1,4 @@
+import math
 import os
 import shutil
 
@@ -6,7 +7,7 @@ import pytest
 from animhacker import edit_ops as ops
 from animhacker.model import Animation, Constraint, Header, JointMotion, PositionKey, RotationKey
 from animhacker.ui.fields import format_value, parse_value
-from animhacker.vectors import Vec3F32, Vec3U16, to_f32
+from animhacker.vectors import Vec3F32, Vec3U16, VectorType, to_f32, u16_to_f32
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
 
@@ -114,3 +115,70 @@ def test_raw_float_text_and_bit_patterns():
         v = to_f32(value)
         assert parse_value("float", format_value("float", v, raw=True), raw=True) == v
         assert parse_value("float", format_value("float", v)) == v
+
+
+# ------------------------------------------------------------------------------ bulk offsets
+
+def _axis_key(time, degrees, axis):
+    from animhacker import quat as q
+    r = q.from_axis_angle(math.radians(degrees), *axis)
+    r = r if r.w >= 0 else q.Quat(-r.x, -r.y, -r.z, -r.w)
+    return RotationKey(time, Vec3U16.from_human(VectorType.ROTATION,
+                                                *(2 * math.degrees(math.asin(c)) for c in r[:3])))
+
+
+def _angles(key):
+    return key.rot.to_human(VectorType.ROTATION)
+
+
+def test_offset_adds_a_rotation_about_the_joints_own_axis():
+    motion = JointMotion("mHead", 3, [_axis_key(0, 0, (0, 1, 0)), _axis_key(100, 30, (0, 1, 0)),
+                                      _axis_key(200, -50, (0, 1, 0))], [])
+    assert ops.offset_keys([motion], (0, 20, 0)) == (3, 0, 0)
+    got = [_angles(k)[1] for k in motion.rotation_keys]
+    assert got == pytest.approx([20, 50, -30], abs=0.05)
+    assert all(_angles(k)[0] == pytest.approx(0, abs=0.05) for k in motion.rotation_keys)
+
+
+def test_offset_is_applied_in_the_joints_frame_not_the_parents():
+    """A key already turned about X, then offset about Y: the Y turn happens first, in the joint's
+    own frame, which is the viewer's mul(offset, key)."""
+    from animhacker import quat as q
+    key = _axis_key(0, 40, (1, 0, 0))
+    motion = JointMotion("mHead", 3, [key], [])
+    original = q.unpack_from_vector3(*(u16_to_f32(c, -1, 1)
+                                       for c in (key.rot.x, key.rot.y, key.rot.z)))
+    ops.offset_keys([motion], (0, 20, 0))
+    new = motion.rotation_keys[0].rot
+    result = q.unpack_from_vector3(*(u16_to_f32(c, -1, 1) for c in (new.x, new.y, new.z)))
+    expected = q.mul(q.from_axis_angle(math.radians(20), 0, 1, 0), original)
+    assert result == pytest.approx(expected, abs=2e-4)
+    for v in ((1.0, 0.0, 0.0), (0.0, 0.3, 0.9)):                 # a point carried by the joint
+        assert q.rotate(v, result) == pytest.approx(q.rotate(q.rotate(v, q.from_axis_angle(math.radians(20), 0, 1, 0)), original), abs=5e-4)
+
+
+def test_offset_keeps_a_valid_quaternion_when_w_would_go_negative():
+    motion = JointMotion("mHead", 3, [_axis_key(0, 170, (0, 1, 0))], [])
+    ops.offset_keys([motion], (0, 40, 0))                   # 210 degrees == -150 degrees
+    assert _angles(motion.rotation_keys[0])[1] == pytest.approx(-150, abs=0.1)
+
+
+def test_offset_respects_the_time_range_and_the_chosen_joints():
+    a = JointMotion("mHead", 3, [_axis_key(0, 0, (0, 1, 0)), _axis_key(500, 0, (0, 1, 0)), _axis_key(900, 0, (0, 1, 0))], [])
+    b = JointMotion("mNeck", 3, [_axis_key(500, 0, (0, 1, 0))], [])
+    assert ops.offset_keys([a], (0, 10, 0), raw_start=400, raw_end=600) == (1, 0, 0)
+    assert [round(_angles(k)[1]) for k in a.rotation_keys] == [0, 10, 0]
+    assert round(_angles(b.rotation_keys[0])[1]) == 0                   # not chosen, not touched
+
+
+def test_zero_offset_changes_nothing_and_counts_nothing():
+    motion = JointMotion("mHead", 3, [RotationKey(0, Vec3U16(100, 200, 300))], [PositionKey(0, Vec3U16(1, 2, 3))])
+    assert ops.offset_keys([motion]) == (0, 0, 0)
+    assert motion.rotation_keys[0].rot == Vec3U16(100, 200, 300) and motion.position_keys[0].pos == Vec3U16(1, 2, 3)
+
+
+def test_position_offset_adds_metres_and_clamps():
+    motion = JointMotion("mPelvis", 3, [], [PositionKey(0, Vec3U16.from_human(VectorType.POSITION, 0.1, 0.0, 4.9))])
+    assert ops.offset_keys([motion], position_metres=(0.25, -0.1, 0.5)) == (0, 1, 1)
+    x, y, z = motion.position_keys[0].pos.to_human(VectorType.POSITION)
+    assert (x, y) == pytest.approx((0.35, -0.1), abs=1e-3) and z == pytest.approx(5.0, abs=1e-3)

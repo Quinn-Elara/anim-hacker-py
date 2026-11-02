@@ -6,6 +6,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt                                          # noqa: E402
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox   # noqa: E402
 
 from animhacker import constraint_tools                                # noqa: E402
@@ -402,3 +403,40 @@ def test_footer_credit_and_build(window):
     from animhacker import buildinfo
     assert "Build %s" % buildinfo.build_label() in footer
     assert "Version" not in footer
+
+
+def test_bulk_offset_dialog(window, monkeypatch):
+    shown = say(monkeypatch)
+    anim = window.anim
+    names = [m.joint_name for m in anim.joint_motions]
+    assert names
+    before = [[k.rot for k in m.rotation_keys] for m in anim.joint_motions]
+    dialog = dialogs.BulkOffsetDialog(anim)
+    dialog._run()                                              # nothing entered
+    assert shown and "offset" in shown[-1].lower() and not dialog.applied
+    dialog._rotation[1].setValue(20.0)
+    dialog._set_all(Qt.Unchecked)
+    dialog._run()
+    assert "Tick at least one joint" in shown[-1] and not dialog.applied
+    dialog._set_all(Qt.Checked)
+    dialog._run()
+    assert dialog.applied and "rotation key" in shown[-1]
+    after = [[k.rot for k in m.rotation_keys] for m in anim.joint_motions]
+    assert after != before
+    assert window._bulk.isEnabled()
+
+
+def test_bulk_offset_time_range_and_main_window_entry(window, monkeypatch):
+    shown = say(monkeypatch)
+    anim = window.anim
+    dialog = dialogs.BulkOffsetDialog(anim)
+    dialog._rotation[1].setValue(10.0)
+    dialog._limit.setChecked(True)
+    dialog._start.setValue(anim.header.duration + 1)             # clamped to the duration
+    dialog._end.setValue(0.0)
+    dialog._run()
+    assert "after the end" in shown[-1] and not dialog.applied
+    ran = []
+    monkeypatch.setattr(dialogs.BulkOffsetDialog, "exec", lambda self: ran.append(self) or 1)
+    window.bulk_offset()
+    assert ran and not window.modified
