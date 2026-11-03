@@ -413,7 +413,9 @@ def test_footer_credit_and_build(window):
     from PySide6.QtWidgets import QLabel
     texts = [l.text() for l in window.findChildren(QLabel)]
     footer = next(t for t in texts if "Anim Hacker by" in t)
-    assert footer.startswith("Anim Hacker by Ai (extrude.ragu), Python port and additions by Quinn (quinn.elara)")
+    import re
+    assert re.sub("<[^>]+>", "", footer).startswith(
+        "Anim Hacker by Ai (extrude.ragu), Python port and additions by Quinn (quinn.elara)")
     from animhacker import buildinfo
     assert "Build %s" % buildinfo.build_label() in footer
     assert "Version" not in footer
@@ -461,3 +463,23 @@ def test_bulk_offset_axis_labels_are_right_aligned(app):
     dialog = dialogs.BulkOffsetDialog(Animation())
     labels = [l for l in dialog.findChildren(QLabel) if l.text() in ("X", "Y", "Z")]
     assert len(labels) == 6 and all(l.alignment() & Qt.AlignRight for l in labels)
+
+
+def test_empty_emote_name_shows_none(window):
+    window.anim.header.name = ""
+    window._refresh()
+    assert window._table.item(4, 1).text() == "(none)"
+    window.anim.header.name = "Smile"
+    window._refresh()
+    assert window._table.item(4, 1).text() == "Smile"
+
+
+def test_footer_credits_link_to_the_projects(window):
+    from PySide6.QtWidgets import QLabel
+    from animhacker.ui import texts
+    footer = next(l for l in window.findChildren(QLabel) if "Python port" in l.text())
+    text = footer.text()
+    assert '<a href="%s">Anim Hacker by Ai (extrude.ragu)</a>' % texts.HOME_URL in text
+    assert '<a href="%s">Python port and additions by Quinn (quinn.elara)</a>' % texts.REPO_URL in text
+    assert text.count("http") == 2 and "Build " in text            # no plain URL left
+    assert texts.REPO_URL == "https://github.com/Quinn-Elara/anim-hacker-py"

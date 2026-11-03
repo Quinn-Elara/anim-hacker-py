@@ -72,6 +72,17 @@ def short_label(commit: Optional[str], dirty: bool = False) -> str:
     return commit[:SHORT_LENGTH] + ("-dirty" if dirty else "")
 
 
+def version_string(commit: Optional[str], dirty: bool = False) -> str:
+    """The package version: a PEP 440 local version built from the same short hash as the footer,
+    e.g. 0+3fe5763abc, or 0+3fe5763abc-dirty (installers normalise that to 0+3fe5763abc.dirty)."""
+    return "0+" + short_label(commit, dirty)
+
+
+def version() -> str:
+    found = state()
+    return version_string(*found) if found else version_string(None)
+
+
 def build_label() -> str:
     """Short text for the window, such as 3fe5763abc, 3fe5763abc-dirty (uncommitted changes) or unknown."""
     found = state()

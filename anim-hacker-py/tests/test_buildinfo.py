@@ -45,6 +45,13 @@ def test_labels():
     assert buildinfo.short_label("") == "unknown"
 
 
+def test_version_follows_the_commit_like_the_footer():
+    commit = "0123456789abcdef0123456789abcdef01234567"
+    assert buildinfo.version_string(commit) == "0+0123456789"
+    assert buildinfo.version_string(commit, True) == "0+0123456789-dirty"
+    assert buildinfo.version_string(None) == "0+unknown"
+
+
 def test_git_state_reads_the_commit_and_notices_changes(tmp_path):
     repo = make_repo(tmp_path / "r")
     commit, dirty = buildinfo.git_state(str(repo))
@@ -176,3 +183,35 @@ def test_build_outside_git_writes_nothing(tmp_path):
     done = run_setup(project, "build_py", "-d", str(tmp_path / "out"))
     assert done.returncode == 0, done.stderr
     assert not (tmp_path / "out" / "animhacker" / "_build_info.py").exists()
+
+
+def package_version(project):
+    done = run_setup(project, "--version")
+    assert done.returncode == 0, done.stderr
+    return done.stdout.strip().splitlines()[-1]
+
+
+def test_package_version_is_the_commit(tmp_path):
+    project = copy_project(tmp_path / "p")
+    assert package_version(project) == "0+unknown"                   # no git information at all
+    git(project, "init", "-q")
+    git(project, "add", "-A")
+    git(project, "commit", "-q", "-m", "release")
+    commit = git(project, "rev-parse", "HEAD")
+    assert package_version(project) == "0+" + commit[:buildinfo.SHORT_LENGTH]
+    (project / "pyproject.toml").write_text((project / "pyproject.toml").read_text() + "\n# changed\n")
+    assert package_version(project) == "0+%s.dirty" % commit[:buildinfo.SHORT_LENGTH]    # normalised
+
+
+def test_package_version_survives_a_source_archive(tmp_path):
+    """An archive carries _build_info.py, so a build outside git keeps the commit it was made from."""
+    project = copy_project(tmp_path / "p")
+    (project / "src" / "animhacker" / "_build_info.py").write_text('COMMIT = "%s"\nDIRTY = False\n' % ("ab12cd34ef" * 4))
+    assert package_version(project) == "0+ab12cd34ef"
+
+
+def test_dunder_version_matches():
+    import animhacker
+    assert animhacker.__version__ == buildinfo.version()
+    with pytest.raises(AttributeError):
+        animhacker.__nothing__

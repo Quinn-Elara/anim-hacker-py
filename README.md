@@ -28,6 +28,10 @@ from a checkout (`pip install .`, `python -m build`). A trailing `-dirty` means 
 uncommitted changes to tracked files. Without any git information, such as a copy unpacked from an
 archive that was not made from a checkout, it says `unknown` rather than guess.
 
+The package version follows the same convention: it is `0+<short hash>` (for example
+`0+9c5f28b202`, with `.dirty` added for uncommitted changes), set in `setup.py`, so
+`pip install .` and `animhacker.__version__` agree with the footer.
+
 ## What it does
 
 Everything the original did:

@@ -1,5 +1,5 @@
 """Packaging hooks that record the git commit in the built package (see src/animhacker/buildinfo.py).
-All other settings are in pyproject.toml."""
+The version number is the git commit too (0+<short hash>). All other settings are in pyproject.toml."""
 import importlib.util
 import os
 
@@ -16,6 +16,28 @@ def _buildinfo():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _state():
+    """(commit, dirty) from the git checkout, else from the _build_info.py a source archive carries,
+    else None."""
+    found = _buildinfo().git_state(HERE)
+    if found:
+        return found
+    path = os.path.join(HERE, "src", "animhacker", "_build_info.py")
+    if os.path.isfile(path):
+        spec = importlib.util.spec_from_file_location("animhacker_build_info", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        if getattr(module, "COMMIT", ""):
+            return module.COMMIT, bool(getattr(module, "DIRTY", False))
+    return None
+
+
+def _version():
+    """The package version follows the git commit, like the footer of the main window."""
+    found = _state()
+    return _buildinfo().version_string(*found) if found else _buildinfo().version_string(None)
 
 
 def _write_build_info(folder):
@@ -43,4 +65,4 @@ class Sdist(sdist):
         _write_build_info(os.path.join(base_dir, "src", "animhacker"))
 
 
-setup(cmdclass={"build_py": BuildPy, "sdist": Sdist})
+setup(version=_version(), cmdclass={"build_py": BuildPy, "sdist": Sdist})

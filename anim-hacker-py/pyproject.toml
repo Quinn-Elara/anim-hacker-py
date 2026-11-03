@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "animhacker"
-version = "0.6.7"
+dynamic = ["version"]          # the git commit, set in setup.py
 description = "Edit Second Life .anim animation files (Qt port of Anim Hacker)"
 readme = "README.md"
 license = { text = "Apache-2.0" }

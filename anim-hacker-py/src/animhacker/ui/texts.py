@@ -1,7 +1,8 @@
 """Fixed text: reference lists and the help window (the original tool's "Clippy")."""
 
 ANIM_FORMAT_URL = "https://wiki.secondlife.com/wiki/Internal_Animation_Format"
-HOME_URL = "https://aiaicapta.in/anim-hacker/"
+HOME_URL = "https://aiaicapta.in/anim-hacker/"          # the original Anim Hacker
+REPO_URL = "https://github.com/Quinn-Elara/anim-hacker-py"   # this Python port
 
 EMOTE_NAMES = ["Aaaaah", "Afraid", "Angry", "Big Smile", "Bored", "Cry", "Disdain", "Embarrassed",
                "Frown", "Kiss", "Laugh", "Plllppt", "Repulsed", "Sad", "Shrug", "Smile",

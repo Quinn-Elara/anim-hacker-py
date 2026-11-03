@@ -18,7 +18,8 @@ from .dialogs import (ANIM_FILTER, BulkOffsetDialog, ChoiceEditor, HelpDialog, P
                       load_animation_file)
 from .joint_editor import JointMotionEditor
 
-CREDIT = "Anim Hacker by Ai (extrude.ragu), Python port and additions by Quinn (quinn.elara)"
+CREDIT = ('<a href="%s">Anim Hacker by Ai (extrude.ragu)</a>, '
+          '<a href="%s">Python port and additions by Quinn (quinn.elara)</a>' % (texts.HOME_URL, texts.REPO_URL))
 
 
 class MainWindow(QMainWindow):
@@ -81,9 +82,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._bulk)
         layout.addWidget(self._constraints)
 
-        credit = QLabel('%s<br>Build %s &nbsp;·&nbsp; <a href="%s">%s</a> &nbsp;·&nbsp; '
-                        'Apache License 2.0'
-                        % (CREDIT, buildinfo.build_label(), texts.HOME_URL, texts.HOME_URL))
+        credit = QLabel('%s<br>Build %s &nbsp;·&nbsp; Apache License 2.0' % (CREDIT, buildinfo.build_label()))
         credit.setToolTip(buildinfo.build_details())
         credit.setOpenExternalLinks(True)
         credit.setWordWrap(True)
@@ -142,6 +141,8 @@ class MainWindow(QMainWindow):
             if value > texts.MAX_HAND_POSE:
                 return "%d (not valid: the viewer refuses animations above %d)" % (value, texts.MAX_HAND_POSE)
             return str(value)
+        if attr == "name" and not value:
+            return "(none)"                                  # no emote
         return fields.format_value(kind, value)
 
     def _selected_row(self) -> Optional[int]:
