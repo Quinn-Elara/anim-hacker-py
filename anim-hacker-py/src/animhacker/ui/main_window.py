@@ -137,7 +137,11 @@ class MainWindow(QMainWindow):
         value = getattr(self.anim.header, attr)
         if attr == "hand_pose":
             name = fields.hand_pose_name(value)
-            return "%s (%s)" % (fields.format_value(kind, value), name) if name else fields.format_value(kind, value)
+            if name:
+                return "%d (%s)" % (value, name)
+            if value > texts.MAX_HAND_POSE:
+                return "%d (not valid: the viewer refuses animations above %d)" % (value, texts.MAX_HAND_POSE)
+            return str(value)
         return fields.format_value(kind, value)
 
     def _selected_row(self) -> Optional[int]:
@@ -165,6 +169,11 @@ class MainWindow(QMainWindow):
             return False
         self.anim, self.path, self.modified = anim, path, False
         self._refresh()
+        if anim.header.hand_pose > texts.MAX_HAND_POSE:
+            QMessageBox.warning(self, "Hand pose not valid",
+                                "This animation's handPose is %d. The viewer refuses to load (or upload) "
+                                "animations with a hand pose above %d, so this one will fail. Choose a hand "
+                                "pose from the list (Edit... on handPose)." % (anim.header.hand_pose, texts.MAX_HAND_POSE))
         return True
 
     def open_file(self) -> None:
@@ -240,16 +249,23 @@ class MainWindow(QMainWindow):
             options = [("(none)", "")] + [(n, n) for n in texts.EMOTE_NAMES]
             hint = "Emote name"
         else:
-            options = [("%s  (0x%08X)" % (name, number), number) for number, name in texts.HAND_POSES]
-            hint = "Number such as 0x03000000"
+            options = [("%s  (%d)" % (name, number), number) for number, name in texts.HAND_POSES]
+            hint = "Number from 0 to %d" % texts.MAX_HAND_POSE
         value = ChoiceEditor.ask(
             self, "Edit " + label, label, options, getattr(self.anim.header, attr),
-            parse=lambda text: fields.parse_value(kind, text),
-            show=lambda v: fields.format_value(kind, v), custom_hint=hint)
+            parse=(self._parse_hand_pose if attr == "hand_pose" else lambda text: fields.parse_value(kind, text)),
+            show=(str if attr == "hand_pose" else lambda v: fields.format_value(kind, v)), custom_hint=hint)
         if value is None:
             return
         setattr(self.anim.header, attr, value)
         self._mark_modified()
+
+    @staticmethod
+    def _parse_hand_pose(text: str) -> int:
+        value = fields.parse_value("uint", text)
+        if value > texts.MAX_HAND_POSE:
+            raise ValueError("The viewer refuses animations with a hand pose above %d." % texts.MAX_HAND_POSE)
+        return value
 
     def replace_header_from_file(self) -> None:
         other = ask_for_animation(self, "Take the header from which file?")

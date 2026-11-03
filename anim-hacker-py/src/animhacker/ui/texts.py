@@ -7,9 +7,13 @@ EMOTE_NAMES = ["Aaaaah", "Afraid", "Angry", "Big Smile", "Bored", "Cry", "Disdai
                "Frown", "Kiss", "Laugh", "Plllppt", "Repulsed", "Sad", "Shrug", "Smile",
                "Surprise", "Wink", "Worry", "Express_Anger_Emote"]
 
-HAND_POSES = [(0x00000000, "Spread"), (0x01000000, "Relaxed"), (0x02000000, "Point Both"),
-              (0x03000000, "Fist"), (0x04000000, "Relaxed Left"), (0x05000000, "Point Left"),
-              (0x06000000, "Fist Left")]
+# The viewer's LLHandMotion::eHandPose, in order: the stored number is simply the index.
+HAND_POSES = [(0, "Spread"), (1, "Relaxed"), (2, "Point"), (3, "Fist"), (4, "Relaxed Left"),
+              (5, "Point Left"), (6, "Fist Left"), (7, "Relaxed Right"), (8, "Point Right"),
+              (9, "Fist Right"), (10, "Salute Right"), (11, "Typing"), (12, "Peace Right"),
+              (13, "Palm Right")]
+# The viewer refuses to load an animation whose hand pose number is above this.
+MAX_HAND_POSE = 14
 
 HELP_HTML = """
 <h3>Useful links</h3>
@@ -65,5 +69,5 @@ def help_html() -> str:
         "format": ANIM_FORMAT_URL,
         "home": HOME_URL,
         "emotes": ", ".join(EMOTE_NAMES),
-        "hands": "; ".join("0x%08X %s" % (value, name) for value, name in HAND_POSES),
+        "hands": "; ".join("%d %s" % (value, name) for value, name in HAND_POSES),
     }

@@ -232,29 +232,43 @@ def test_emote_and_hand_pose_use_a_dropdown(window, monkeypatch):
     calls = []
 
     def fake(parent, title, label, options, current, parse, show, custom_hint=""):
-        calls.append((label, [t for t, _ in options], current, parse, show))
+        calls.append((label, [t for t, _ in options], [v for _, v in options], current, parse, show))
         return None
     monkeypatch.setattr(main_window.ChoiceEditor, "ask", staticmethod(fake))
     window._table.selectRow(4)
     window.edit_header_value()
     window._table.selectRow(10)
     window.edit_header_value()
-    (emote_label, emote_options, emote_now, emote_parse, _), (hand_label, hand_options, hand_now, hand_parse, hand_show) = calls
+    (emote_label, emote_options, _, emote_now, emote_parse, _), (hand_label, hand_options, hand_values, hand_now, hand_parse, hand_show) = calls
     assert emote_label == "emoteName" and emote_options[0] == "(none)" and "Express_Anger_Emote" in emote_options
     assert len(emote_options) == 21 and emote_now == "test"           # a custom name in this file
-    assert hand_label == "handPose" and len(hand_options) == 7 and hand_options[3].startswith("Fist")
-    assert hand_parse("0x07000000") == 0x07000000 and hand_show(0x03000000) == "0x03000000"
-    with pytest.raises(ValueError):
-        hand_parse("-1")
+    assert hand_label == "handPose" and hand_values == list(range(14)) and hand_options[3].startswith("Fist")
+    assert hand_parse("7") == 7 and hand_parse("0x0E") == 14 and hand_show(3) == "3"
+    for bad in ("-1", "15", "0x01000000"):
+        with pytest.raises(ValueError):
+            hand_parse(bad)
 
 
 def test_hand_pose_is_named_in_the_table(window):
-    window.anim.header.hand_pose = 0x03000000
+    window.anim.header.hand_pose = 3
     window._refresh()
-    assert window._table.item(10, 1).text() == "0x03000000 (Fist)"
-    window.anim.header.hand_pose = 0x09000000
+    assert window._table.item(10, 1).text() == "3 (Fist)"
+    window.anim.header.hand_pose = 14
     window._refresh()
-    assert window._table.item(10, 1).text() == "0x09000000"
+    assert window._table.item(10, 1).text() == "14"
+    window.anim.header.hand_pose = 0x01000000
+    window._refresh()
+    assert "not valid" in window._table.item(10, 1).text()
+
+
+def test_opening_a_file_with_an_invalid_hand_pose_warns(window, monkeypatch, tmp_path):
+    shown = say(monkeypatch)
+    window.anim.header.hand_pose = 0x01000000
+    path = tmp_path / "bad.anim"
+    window.anim.save(str(path))
+    window.modified = False
+    assert window.load_path(str(path))
+    assert shown and "hand pose" in shown[-1].lower() and "16777216" in shown[-1]
 
 
 def test_choice_editor_picks_and_accepts_custom_values(app):
