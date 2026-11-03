@@ -182,3 +182,12 @@ def test_position_offset_adds_metres_and_clamps():
     assert ops.offset_keys([motion], position_metres=(0.25, -0.1, 0.5)) == (0, 1, 1)
     x, y, z = motion.position_keys[0].pos.to_human(VectorType.POSITION)
     assert (x, y) == pytest.approx((0.35, -0.1), abs=1e-3) and z == pytest.approx(5.0, abs=1e-3)
+
+
+def test_joint_priorities_follow_the_animation_unless_minus_one():
+    anim = Animation(header=Header(priority=4), joint_motions=[
+        JointMotion("a", 3), JointMotion("b", -1), JointMotion("c", 4), JointMotion("d", 0)])
+    assert [m.joint_name for m in ops.joints_with_other_priority(anim, 4)] == ["a", "d"]
+    assert ops.set_all_joint_priorities(anim, 4) == 2
+    assert [m.joint_priority for m in anim.joint_motions] == [4, -1, 4, 4]
+    assert ops.set_all_joint_priorities(anim, 4) == 0

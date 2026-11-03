@@ -483,3 +483,46 @@ def test_footer_credits_link_to_the_projects(window):
     assert '<a href="%s">Python port and additions by Quinn (quinn.elara)</a>' % texts.REPO_URL in text
     assert text.count("http") == 2 and "Build " in text            # no plain URL left
     assert texts.REPO_URL == "https://github.com/Quinn-Elara/anim-hacker-py"
+
+
+def _set_priority_through_the_window(window, monkeypatch, answer, value="5"):
+    asked = []
+    monkeypatch.setattr(main_window.QMessageBox, "question",
+                        lambda *a, **k: asked.append(a[2]) or answer)
+    monkeypatch.setattr(main_window.ValueEditor, "ask", staticmethod(lambda *a, **k: int(value)))
+    window._table.selectRow(2)                      # priority
+    window.edit_header_value()
+    return asked
+
+
+def test_changing_the_priority_offers_to_match_the_joints(window, monkeypatch):
+    anim = window.anim
+    for motion in anim.joint_motions:
+        motion.joint_priority = 3
+    anim.joint_motions[0].joint_priority = -1       # follows the animation: left alone
+    asked = _set_priority_through_the_window(window, monkeypatch, QMessageBox.Yes)
+    assert anim.header.priority == 5 and len(asked) == 1 and "5" in asked[0]
+    assert anim.joint_motions[0].joint_priority == -1
+    assert all(m.joint_priority == 5 for m in anim.joint_motions[1:]) and window.modified
+
+
+def test_declining_leaves_the_joint_priorities(window, monkeypatch):
+    anim = window.anim
+    for motion in anim.joint_motions:
+        motion.joint_priority = 3
+    asked = _set_priority_through_the_window(window, monkeypatch, QMessageBox.No)
+    assert anim.header.priority == 5 and len(asked) == 1
+    assert all(m.joint_priority == 3 for m in anim.joint_motions)
+
+
+def test_no_question_when_nothing_would_change(window, monkeypatch):
+    anim = window.anim
+    for motion in anim.joint_motions:
+        motion.joint_priority = 5
+    assert _set_priority_through_the_window(window, monkeypatch, QMessageBox.Yes) == []   # already match
+    for motion in anim.joint_motions:
+        motion.joint_priority = -1
+    anim.header.priority = 2
+    assert _set_priority_through_the_window(window, monkeypatch, QMessageBox.Yes) == []   # all follow it
+    anim.header.priority = 5
+    assert _set_priority_through_the_window(window, monkeypatch, QMessageBox.Yes) == []   # unchanged value

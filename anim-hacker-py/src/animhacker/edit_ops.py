@@ -16,6 +16,7 @@ MIN_PRIORITY = 0
 MAX_PRIORITY = 7
 
 INCREASE, DECREASE, SET = "increase", "decrease", "set"
+USE_ANIMATION_PRIORITY = -1        # a joint priority meaning "follow the animation's priority"
 
 
 def flip_code(code: int) -> int:
@@ -49,6 +50,21 @@ def append_keys(target: JointMotion, source: JointMotion, raw_time_offset: int,
                 flip_vector(key.pos, flip_x, flip_y, flip_z)))
             added_positions += 1
     return added_rotations, added_positions
+
+
+def joints_with_other_priority(anim: Animation, priority: int) -> List[JointMotion]:
+    """The joints whose own priority differs from `priority`. Joints set to -1 ("use the animation's
+    priority") already follow the animation, so they are not counted."""
+    return [m for m in anim.joint_motions if m.joint_priority != USE_ANIMATION_PRIORITY and m.joint_priority != priority]
+
+
+def set_all_joint_priorities(anim: Animation, priority: int) -> int:
+    """Gives every joint that has its own priority this one. Joints set to -1 are left alone.
+    Returns how many joints changed."""
+    changed = joints_with_other_priority(anim, priority)
+    for motion in changed:
+        motion.joint_priority = priority
+    return len(changed)
 
 
 def _turn_rotation_code(rot: Vec3U16, offset: quat.Quat) -> Vec3U16:

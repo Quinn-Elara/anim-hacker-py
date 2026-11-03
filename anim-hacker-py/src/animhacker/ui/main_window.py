@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QLab
                                QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
-from .. import buildinfo
+from .. import buildinfo, edit_ops
 from ..model import Animation, AnimFormatError, Header
 from . import fields, texts
 from .constraint_editor import ConstraintEditor
@@ -241,8 +241,25 @@ class MainWindow(QMainWindow):
                                 validator=lambda text: fields.parse_value(kind, text))
         if value is None:
             return
+        previous = getattr(self.anim.header, attr)
         setattr(self.anim.header, attr, value)
+        if attr == "priority" and value != previous:
+            self._offer_joint_priorities(value)
         self._mark_modified()
+
+    def _offer_joint_priorities(self, priority: int) -> None:
+        """After the animation's priority changes, offers to give every joint the same priority."""
+        differing = edit_ops.joints_with_other_priority(self.anim, priority)
+        if not differing:
+            return
+        answer = QMessageBox.question(
+            self, "Change joint priorities too?",
+            "The animation's priority is now %d, but %d of its %d joint(s) have a different priority of their "
+            "own.\n\nChange all of the joint priorities to %d as well?\n(Joints set to -1, which already "
+            "follow the animation's priority, are left alone.)" % (priority, len(differing), len(self.anim.joint_motions), priority),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer == QMessageBox.Yes:
+            edit_ops.set_all_joint_priorities(self.anim, priority)
 
     def _edit_from_list(self, label: str, attr: str, kind: str) -> None:
         """emoteName and handPose have a fixed set of valid values, so they get a dropdown."""
